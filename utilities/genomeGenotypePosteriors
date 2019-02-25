@@ -1,0 +1,15 @@
+#!/bin/sh
+
+export SFT=/mnt/genetica3/marius/pipeline_practicas_marius/software
+alias bwa='$SFT/bwa/bwa'
+alias samtools='$SFT/samtools/samtools'
+alias picard='java -jar $SFT/picard/build/libs/picard.jar'
+alias gatk='java -jar $SFT/gatk/build/libs/gatk-package-4.0.6.0-22-g9d9484f-SNAPSHOT-local.jar'
+
+java -jar GenomeAnalysisTK.jar \
+   -T CalculateGenotypePosteriors \
+   -R reference.fasta \
+   -V /mnt/genetica3/lorena/TRIO/results/vep_vcf_annotated_data/vep_qual_filters_annotated_can_conseq_freqs_trio_2019_02_13_17_04_56.vcf \
+   --skipPopulationPriors \
+   -ped /mnt/genetica2/NGS_data/Exomas-WES/CNAG-CONSYN-2013/Kabuki1/RESULTS-OLD-PIPELINE/kabuki1.ped \
+   -o output.withPosteriors.vcf
