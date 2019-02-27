@@ -3,11 +3,67 @@
 
 import sys
 import argparse
+import time
+import csv
+import os
+
 
 def main():
+
+    myFields = ["CHROM", "POS", "ID", "REF", "ALT", "VEP_Feature"] 
+
+    myFields = ["CHROM", "POS", "REF", "ALT", "VEP_SYMBOL",    "VEP_Gene", "QUAL", "DP", "VEP_VARIANT_CLASS", 
+       "VEP_Existing_variation",  "VEP_Feature_type    VEP_Feature", 
+       "VEP_BIOTYPE", "VEP_Consequence", "VEP_EXON",    "VEP_INTRON", "VEP_cDNA_position", "VEP_DISTANCE",
+       "VEP_STRAND", "VEP_ENSP" "VEP_SWISSPROT", "VEP_Interpro_domain", "VEP_DOMAINS VEP_SIFT",  
+       "VEP_PolyPhen",  "VEP_LRT_pred", "VEP_M-CAP_pred", "VEP_MetaLR_pred", "VEP_MetaSVM_pred", "VEP_MutationAssessor_pred",
+       "VEP_MutationTaster_pred", "VEP_PROVEAN_pred", "VEP_FATHMM_pred", "VEP_ada_score",  "VEP_rf_score"    ,"VEP_LoFtool" ,
+       "VEP_ExACpLI" ,"VEP_CLIN_SIG" ,"VEP_SOMATIC", "VEP_PHENO",   "VEP_PUBMED",
+        "VEP_AF",  "VEP_MAX_AF",  "VEP_MAX_AF_POPS", "VEP_1000Gp3_AF",  "VEP_1000Gp3_EUR_AF",  "VEP_ExAC_AF", 
+        "VEP_ExAC_Adj_AF", "VEP_ExAC_EAS_AF", "VEP_ExAC_NFE_AF", "VEP_GTEx_V6p_gene",   "VEP_GTEx_V6p_tissue",
+        "VEP_gnomAD_exomes_AF", "VEP_gnomAD_exomes_NFE_AF",    "VEP_gnomAD_genomes_AF",   "VEP_phastCons20way_mammalian",
+        "VEP_phastCons20way_mammalian_rankscore",  "VEP_phyloP20way_mammalian",   "VEP_phyloP20way_mammalian_rankscore" ] 
+
+
     args = parse_args()
+ 
+    start_time = time.time()
+
+
+    # RAQUEL
+    # Upload eq table of each freq table with pathology group
+    with open("/mnt/genetica2/NGS_data/CSVS_frequencies/dis_group.csv") as csvfile:
+        Pathology=[]
+        data=[]
+        reader = csv.reader(csvfile, delimiter='\t')
+        for x in reader:
+            data.append( x[0])
+            Pathology.append(x[1])
+            path_dict = dict(zip(Pathology, data))
+
+    if args.pathology in Pathology:
+        file = path_dict[args.pathology]
+        dir='/mnt/genetica2/NGS_data/CSVS_frequencies/' # You can use forward slashes on Windows
+        full_path = os.path.join(dir, file)
+    else:
+        sys.stderr.write("ERROR IN PATHOLOGY OPTION")
+
+
+    f = open(full_path, "r")
+    Keylist=[]
+    Values=[]
+    for x in f:
+        myxList=x.split('\t')
+        Keylist.append('chr' + myxList[0] + '/' + str(myxList[1]) + '/' + myxList[2] + '/' + myxList[3])
+        Values.append( myxList[10])
+
+    freq_dict = dict(zip(Keylist, Values))
+
+    print("--- %s seconds ---" % (time.time() - start_time))
+
+
+
     info_fields = get_info_fields(args.input_file)
-    print(info_fields)
     with open(args.input_file) as in_f:
         if args.output_file:
             out_f = open(args.output_file, 'w')
@@ -41,20 +97,216 @@ def main():
             elif line.startswith('#CHROM'):
                 header = line.strip().strip('#').split('\t')
             elif not line.startswith('##'):
-                out_str = process_variant(
+
+                out_str,out_header = process_variant(
                     args, line.strip(), info_key, info_fields, header,
                     vep_info_header, wrote_header
                 )
-                wrote_header = True
-            # output
-            if out_str:
-                if args.output_file:
-                    out_f.write('%s\n' % out_str)
-                else:
-                    print out_str
+
+
+                # filtering parameters 
+
+                if out_header!='':
+                    head=out_header
+                    list_header = out_header.split("\t")
+                    filteringPos = [ list_header.index(x)  for x in myFields ]
+
+
+                    GT_Pos = [x for x in range(0,len(list_header)) if list_header[x][-3:]=="_GT"]
+                    #print(GT_Pos)
+                    if len(GT_Pos)==1:
+                        filteringPos = filteringPos[:4] + GT_Pos + filteringPos[4:]
+                        #print(filteringPos)
+                    if len(GT_Pos)>1:
+                        filteringPos = filteringPos + GT_Pos
+                        #print(filteringPos)
+
+                    out_HEADER = add_new_columns(args, head, wrote_header, filteringPos, freq_dict) # change header
+
+                    if args.output_file:
+                        out_f.write('%s\n' % out_HEADER)
+                    else:
+                        print(out_HEADER)
+
+                    wrote_header = True
+
+
+                if out_str:
+                    out_STR = add_new_columns(args, head, wrote_header, filteringPos, freq_dict, out_str) # change line
+                    if args.output_file:
+                        out_f.write('%s\n' % out_STR)
+                    else:
+                        print(out_STR)                   
+
 
         if args.output_file:
             out_f.close()
+
+    print("--- %s seconds ---" % (time.time() - start_time))
+
+
+def add_new_columns2(args, str_header, wrote_header, filteringPos, freq_dict, str_line=None):
+    
+    list_header = str_header.split("\t")
+    individuals = []
+    list_STR = []
+
+    if wrote_header:
+
+        i_freq = []
+
+        list_str = str_line.split("\n")
+        for m in list_str:
+            list_transc = m.split("\t")
+            list_transcF = [ list_transc[y] for y in filteringPos]
+            ### Add spanish frequencies for that variant-transcript line
+
+            #XXXXXX
+
+            spanish_freq = ["10"]
+
+            ### Add internal frequencies for that variant-transcript line
+            if args.internal_freq and "GT" in args.genotype_fields:
+                freq = []
+                for i in range(0,len(list_transc)):
+                    if list_header[i][-3:]=="_GT":
+                        individuals.append(i)
+                        al = list_transc[i].split("/")
+                        if len(set(al))==1:
+                            if al[0] in "0":
+                                freq.append("HOM_REF")
+                            elif al[0]!= ".":
+                                freq.append("HOM_VAR")
+
+                        else:
+                                freq.append("HET")
+
+                i_freq = [str(freq.count("HOM_REF")),str(freq.count("HOM_VAR")),str(freq.count("HET"))]
+                
+
+            list_STR.append("\t".join(list_transcF+i_freq+spanish_freq))
+
+        
+
+        str_line = "\n".join(list_STR)
+        return str_line
+
+
+
+
+    else:
+
+        list_headerF = [ list_header[y] for y in filteringPos]
+
+        ### Field name for spanish frequencies 
+        spanish_freq = ["mySpanishFreq"]
+
+
+        ### Field names for internal frequencies 
+        i_freq = []
+        if args.internal_freq and "GT" in args.genotype_fields:
+            i_freq = ["HOM_REF","HOM_VAR","HET"]
+            #list_HEADER = list_header+["HOM_REF","HOM_VAR","HET"]
+
+        str_header = "\t".join(list_headerF+i_freq+spanish_freq)
+
+        return str_header
+
+
+def add_new_columns(args, str_header, wrote_header, filteringPos, freq_dict, str_line=None):
+    
+
+    list_header = str_header.split("\t")
+    individuals = []
+    list_STR = []
+
+    if wrote_header:
+
+        i_freq = []
+        spanish_freq = []
+
+        list_str = str_line.split("\n")
+        list_transc = list_str[0].split("\t")
+
+        ### Add spanish frequencies for that variant-transcript line
+
+        Variations = list_transc[4].split(',')
+
+        #print Variations
+        for i in range(len(Variations)):
+            Multi_key = str(list_transc[0]) + '/' + str(list_transc[1]) + '/' + str(list_transc[3]) + '/' + Variations[i]
+            if Multi_key in freq_dict.keys():
+                spanish_freq.append(freq_dict[Multi_key])  
+            else:
+                spanish_freq.append('NaN') 
+
+        spanish_freq = [",".join(spanish_freq)]
+
+
+        # Multi_key = str(list_transc[0]) + '/' + str(list_transc[1]) + '/' + str(list_transc[3]) + '/' + str(list_transc[4])
+        # if Multi_key in freq_dict.keys():
+        #     spanish_freq = [freq_dict[Multi_key]]
+        # else:
+        #     spanish_freq = ['NaN']
+
+
+        #spanish_freq = ["10"]
+
+
+        #print(spanish_freq)
+
+        ### Add internal frequencies for that variant-transcript line
+        if args.internal_freq and "GT" in args.genotype_fields:
+            freq = []
+            for i in range(0,len(list_transc)):
+                if list_header[i][-3:]=="_GT":
+                    individuals.append(i)
+                    al = list_transc[i].split("/")
+                    if len(set(al))==1:
+                        if al[0] in "0":
+                            freq.append("HOM_REF")
+                        elif al[0]!= ".":
+                            freq.append("HOM_VAR")
+
+                    else:
+                            freq.append("HET")
+
+            i_freq = [str(freq.count("HOM_REF")),str(freq.count("HOM_VAR")),str(freq.count("HET"))]
+                
+
+        for m in list_str:
+            list_transc = m.split("\t")
+            list_transcF = [ list_transc[y] for y in filteringPos]
+
+            ### Add spanish frequencies for that variant-transcript line
+            list_STR.append("\t".join(list_transcF+i_freq+spanish_freq))
+
+        #print(spanish_freq)
+
+        str_line = "\n".join(list_STR)
+        return str_line
+
+
+
+
+    else:
+
+        list_headerF = [ list_header[y] for y in filteringPos]
+
+        ### Field name for spanish frequencies 
+        spanish_freq = ["spanishFreq"]
+
+
+        ### Field names for internal frequencies 
+        i_freq = []
+        if args.internal_freq and "GT" in args.genotype_fields:
+            i_freq = ["HOM_REF","HOM_VAR","HET"]
+            list_HEADER = list_header+["HOM_REF","HOM_VAR","HET"]
+
+        str_header = "\t".join(list_headerF+i_freq+spanish_freq)
+
+        return str_header
+
 
 
 def get_info_fields(input_file):
@@ -95,6 +347,7 @@ def process_variant(
     (Single line in input file.) Return output string.
     """
     out_str = ''
+    out_header = ''
     orig_line = line.strip().split('\t')
 
     """ AnnBZ: 08-24-16: Fixing MORL-447
@@ -137,15 +390,12 @@ def process_variant(
         out_header = create_header(
             args, info_index, header, vep_info_header, info_fields, orig_line
         )
-        out_str = '%s\n' % '\t'.join(out_header)
-    
-    print "header"
-    print out_str
-    
+        out_header = '%s' % '\t'.join(out_header)
+
     ####### out_header must be filtered here
 
     # get variant output str
-    out_str += create_variant_str(
+    out_str = create_variant_str(
         args, line, info_index, info_end_index, info_key, header, orig_line,
         info_fields
     )
@@ -157,10 +407,9 @@ def process_variant(
     # print header
     # print orig_line
     # print info_fields
-    print "str line"
-    print out_str
 
-    return out_str
+
+    return out_str,out_header
 
 
 def create_header(
@@ -244,7 +493,6 @@ def create_variant_str(
             info_out.append('')
 
     after_info = line[info_end_index + 1:]
-    print(after_info)
     if 'FORMAT' in header:
         format_index = header.index('FORMAT') + len(line) - len(orig_line)
 
@@ -257,19 +505,15 @@ def create_variant_str(
         # assumes INFO comes before FORMAT, which comes directly before
         # samples (if present)
         after_info = line[info_end_index + 1:format_index]
-        print(after_info)
         if len(line) > format_index + 1:
             for sample in line[format_index + 1:]:
                 # make sure number of genotype columns matches format
                 sample_out_b = sample.split(':')
-                print("hihihi")
-                print(sample_out_b)
                 for i in args.genotype_fields.split(','):
                     if i in keys:
                         sample_out.append(sample_out_b[keys.index(i)])
                     else:
                         sample_out.append("")
-                print(sample_out)
 
 
                 # for i in range(
@@ -279,9 +523,6 @@ def create_variant_str(
                 #     print(sample_out)
 
         after_info += sample_out
-
-    print("hey")
-    print(after_info)
 
 
     # AnnBZ: 03-27-2017: Augmenting logic to not be dependent on VEP
@@ -417,12 +658,17 @@ def parse_args():
     parser.add_argument(
         '-f', '--genotype_fields', default='GT,DP,GQ',
         help='Fields to take from genotyping'
-             '(Default: all fields are considered.'
+             '(Default: GT,DP,GQ fields are considered.)'
     )
     parser.add_argument(
-        '-g', '--group_disease', default='NA',
-        help='Disease group name'
-             '(Default: no spanish frequencies are added.'
+        '-p', '--pathology', default='healthy',
+        help='Disease group name: resp, digest, skin, musc, gu, pregnancy, perinatal, cong_mal, clinic, external, infectious, external2, factors, other, neoplasm, blood, endoc, mental, NS, eye, ear, circ, healthy' 
+             '(Default: variant spanish frequencies for healthy individuals.)'
+    )
+    parser.add_argument(
+        '-i', '--project_freq', action='store_true',
+        help='Frequences in project'
+             '(Default: No frequences are computed.)'
     )
     if len(sys.argv) == 1:
         parser.print_help()
